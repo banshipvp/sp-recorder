@@ -60,7 +60,7 @@
     },
     "publish": {
       "provider": "github",
-      "owner": "southern-psychologists",
+      "owner": "banshipvp",
       "repo": "sp-recorder"
     }
   }
