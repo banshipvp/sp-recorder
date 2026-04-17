@@ -1,0 +1,67 @@
+{
+  "name": "sp-recorder",
+  "version": "1.0.0",
+  "description": "SP Recorder – capture Zoom sessions (mic + system audio) and upload to Transcription AI",
+  "main": "electron/main.js",
+  "scripts": {
+    "start": "electron .",
+    "build:mac": "electron-builder --mac",
+    "build:mac-arm64": "electron-builder --mac --arm64",
+    "build:mac-x64": "electron-builder --mac --x64",
+    "postinstall": "electron-builder install-app-deps"
+  },
+  "dependencies": {
+    "@supabase/supabase-js": "^2.50.0"
+  },
+  "devDependencies": {
+    "electron": "^33.0.0",
+    "electron-builder": "^25.1.8"
+  },
+  "build": {
+    "appId": "com.southernpsychologists.sp-recorder",
+    "productName": "SP Recorder",
+    "copyright": "Copyright © 2026 Southern Psychologists",
+    "directories": {
+      "output": "dist",
+      "buildResources": "build"
+    },
+    "files": [
+      "electron/**",
+      "renderer/**",
+      "node_modules/@supabase/**",
+      "!node_modules/**/test/**",
+      "!node_modules/**/*.md",
+      "!node_modules/**/*.map"
+    ],
+    "mac": {
+      "category": "public.app-category.healthcare-fitness",
+      "icon": "build/icon.icns",
+      "target": [
+        { "target": "dmg", "arch": ["arm64", "x64"] }
+      ],
+      "hardenedRuntime": true,
+      "gatekeeperAssess": false,
+      "entitlements": "build/entitlements.mac.plist",
+      "entitlementsInherit": "build/entitlements.mac.plist",
+      "extendInfo": {
+        "NSMicrophoneUsageDescription": "SP Recorder needs microphone access to capture your voice during Zoom sessions.",
+        "NSScreenCaptureUsageDescription": "SP Recorder needs Screen Recording access to capture Zoom audio playing through your speakers.",
+        "NSAppleMusicUsageDescription": "Not used."
+      }
+    },
+    "dmg": {
+      "title": "SP Recorder",
+      "icon": "build/icon.icns",
+      "contents": [
+        { "x": 130, "y": 220 },
+        { "x": 410, "y": 220, "type": "link", "path": "/Applications" }
+      ],
+      "window": { "width": 540, "height": 380 }
+    },
+    "publish": {
+      "provider": "github",
+      "owner": "southern-psychologists",
+      "repo": "sp-recorder"
+    }
+  }
+}

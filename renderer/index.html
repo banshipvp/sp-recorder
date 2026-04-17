@@ -1,0 +1,863 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+  <meta http-equiv="Content-Security-Policy"
+    content="default-src 'self'; script-src 'self' 'unsafe-inline'; style-src 'self' 'unsafe-inline'; connect-src https://*.supabase.co https://transcript-ai-lime.vercel.app;" />
+  <title>SP Recorder</title>
+  <style>
+    /* ── Reset & base ──────────────────────────────────────────────────── */
+    *, *::before, *::after { box-sizing: border-box; margin: 0; padding: 0; }
+    html, body {
+      width: 100%; height: 100%; overflow: hidden;
+      font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', sans-serif;
+      -webkit-font-smoothing: antialiased;
+      background: #0f0f17;
+      color: #e2e8f0;
+    }
+
+    /* ── Layout ─────────────────────────────────────────────────────────── */
+    #app {
+      display: flex; flex-direction: column; height: 100vh;
+      -webkit-app-region: drag;
+    }
+    .no-drag { -webkit-app-region: no-drag; }
+
+    /* ── Screen visibility ───────────────────────────────────────────────── */
+    .screen { display: none; flex-direction: column; flex: 1; padding: 24px 28px; }
+    .screen.active { display: flex; }
+
+    /* ── Title bar ───────────────────────────────────────────────────────── */
+    .titlebar {
+      display: flex; align-items: center; justify-content: space-between;
+      padding: 12px 18px 0;
+      -webkit-app-region: drag;
+    }
+    .titlebar-logo { font-size: 15px; font-weight: 700; color: #a5b4fc; letter-spacing: -0.01em; }
+    .titlebar-user {
+      font-size: 12px; color: #64748b; cursor: pointer; -webkit-app-region: no-drag;
+      padding: 4px 8px; border-radius: 6px; transition: background 0.15s;
+    }
+    .titlebar-user:hover { background: rgba(255,255,255,0.05); }
+
+    /* ── Card ─────────────────────────────────────────────────────────── */
+    .card {
+      background: #1a1a2e; border-radius: 16px;
+      border: 1px solid rgba(255,255,255,0.06);
+      padding: 28px;
+    }
+
+    /* ── Typography ─────────────────────────────────────────────────────── */
+    h1 { font-size: 22px; font-weight: 700; color: #f1f5f9; }
+    h2 { font-size: 16px; font-weight: 600; color: #cbd5e1; margin-bottom: 4px; }
+    .lead { font-size: 13px; color: #64748b; line-height: 1.5; }
+    .label { font-size: 11px; font-weight: 600; color: #64748b; text-transform: uppercase; letter-spacing: 0.05em; margin-bottom: 6px; }
+
+    /* ── Form elements ───────────────────────────────────────────────────── */
+    .field { margin-bottom: 16px; }
+    input[type="email"], input[type="password"], input[type="text"], select {
+      width: 100%; padding: 10px 14px; border-radius: 9px;
+      background: rgba(255,255,255,0.04); border: 1px solid rgba(255,255,255,0.09);
+      color: #e2e8f0; font-size: 14px; outline: none;
+      transition: border-color 0.15s, box-shadow 0.15s;
+      -webkit-app-region: no-drag;
+    }
+    input:focus, select:focus {
+      border-color: rgba(99,102,241,0.5);
+      box-shadow: 0 0 0 3px rgba(99,102,241,0.12);
+    }
+    input::placeholder { color: #475569; }
+    select option { background: #1a1a2e; color: #e2e8f0; }
+
+    /* ── Buttons ─────────────────────────────────────────────────────────── */
+    .btn {
+      display: inline-flex; align-items: center; justify-content: center; gap: 8px;
+      padding: 10px 22px; border-radius: 9px; font-size: 14px; font-weight: 600;
+      border: none; cursor: pointer; transition: all 0.15s;
+      -webkit-app-region: no-drag;
+    }
+    .btn:disabled { opacity: 0.45; cursor: not-allowed; }
+    .btn-primary { background: #6366f1; color: #fff; }
+    .btn-primary:hover:not(:disabled) { background: #5254cc; }
+    .btn-danger { background: #ef4444; color: #fff; }
+    .btn-danger:hover:not(:disabled) { background: #dc2626; }
+    .btn-ghost { background: transparent; color: #94a3b8; border: 1px solid rgba(255,255,255,0.09); }
+    .btn-ghost:hover:not(:disabled) { background: rgba(255,255,255,0.05); color: #e2e8f0; }
+    .btn-full { width: 100%; }
+
+    /* ── Record button (big circular) ────────────────────────────────────── */
+    .record-btn {
+      width: 100px; height: 100px; border-radius: 50%; border: none; cursor: pointer;
+      display: flex; align-items: center; justify-content: center;
+      font-size: 36px; transition: all 0.2s; -webkit-app-region: no-drag;
+      box-shadow: 0 4px 24px rgba(0,0,0,0.4);
+    }
+    .record-btn.idle { background: #6366f1; }
+    .record-btn.idle:hover { background: #5254cc; transform: scale(1.04); box-shadow: 0 8px 32px rgba(99,102,241,0.35); }
+    .record-btn.recording { background: #ef4444; animation: pulse-ring 1.6s ease-out infinite; }
+    .record-btn.recording:hover { background: #dc2626; }
+    .record-btn.uploading { background: #374151; cursor: not-allowed; }
+    @keyframes pulse-ring {
+      0% { box-shadow: 0 0 0 0 rgba(239,68,68,0.5); }
+      70% { box-shadow: 0 0 0 18px rgba(239,68,68,0); }
+      100% { box-shadow: 0 0 0 0 rgba(239,68,68,0); }
+    }
+
+    /* ── Level meters ─────────────────────────────────────────────────────── */
+    .meter-row { display: flex; align-items: center; gap: 10px; margin-bottom: 8px; }
+    .meter-label { font-size: 11px; color: #64748b; font-weight: 500; width: 44px; flex-shrink: 0; }
+    .meter-track {
+      flex: 1; height: 8px; background: rgba(255,255,255,0.06);
+      border-radius: 4px; overflow: hidden;
+    }
+    .meter-fill {
+      height: 100%; width: 0%; border-radius: 4px;
+      transition: width 0.06s linear;
+      background: linear-gradient(90deg, #22c55e 60%, #f59e0b 80%, #ef4444 100%);
+    }
+    canvas#vizCanvas { display: block; width: 100%; height: 48px; border-radius: 8px; margin-bottom: 12px; }
+
+    /* ── Timer ────────────────────────────────────────────────────────────── */
+    .timer { font-size: 34px; font-weight: 700; letter-spacing: -0.02em; color: #f1f5f9; font-variant-numeric: tabular-nums; }
+    .timer.recording { color: #ef4444; }
+
+    /* ── Status badges ─────────────────────────────────────────────────────── */
+    .badge {
+      display: inline-flex; align-items: center; gap: 6px;
+      padding: 4px 10px; border-radius: 20px; font-size: 11px; font-weight: 600;
+    }
+    .badge-idle { background: rgba(99,102,241,0.12); color: #a5b4fc; }
+    .badge-recording { background: rgba(239,68,68,0.12); color: #fca5a5; }
+    .badge-uploading { background: rgba(245,158,11,0.12); color: #fcd34d; }
+    .badge-done { background: rgba(34,197,94,0.12); color: #86efac; }
+    .badge-error { background: rgba(239,68,68,0.12); color: #fca5a5; }
+    /* blinking dot */
+    .dot { width: 7px; height: 7px; border-radius: 50%; background: currentColor; }
+    .dot.blink { animation: blink 1s step-end infinite; }
+    @keyframes blink { 50% { opacity: 0; } }
+
+    /* ── Progress bar ─────────────────────────────────────────────────────── */
+    .progress-track { background: rgba(255,255,255,0.06); border-radius: 4px; overflow: hidden; height: 6px; }
+    .progress-fill { height: 100%; background: #6366f1; transition: width 0.3s ease; border-radius: 4px; }
+
+    /* ── Error message ────────────────────────────────────────────────────── */
+    .error-msg { font-size: 12px; color: #fca5a5; margin-top: 8px; line-height: 1.4; }
+    .info-msg  { font-size: 12px; color: #94a3b8; margin-top: 6px; line-height: 1.4; }
+
+    /* ── Spinner ─────────────────────────────────────────────────────────── */
+    .spinner {
+      width: 18px; height: 18px; border: 2px solid rgba(255,255,255,0.15);
+      border-top-color: #a5b4fc; border-radius: 50%;
+      animation: spin 0.8s linear infinite; flex-shrink: 0;
+    }
+    @keyframes spin { to { transform: rotate(360deg); } }
+
+    /* ── Search input wrapper ─────────────────────────────────────────────── */
+    .search-wrapper { position: relative; -webkit-app-region: no-drag; }
+    .search-wrapper input { padding-left: 34px; }
+    .search-icon {
+      position: absolute; left: 10px; top: 50%; transform: translateY(-50%);
+      color: #475569; font-size: 15px; pointer-events: none;
+    }
+    .client-list {
+      max-height: 200px; overflow-y: auto;
+      background: #1a1a2e; border: 1px solid rgba(255,255,255,0.09);
+      border-radius: 9px; margin-top: 4px;
+    }
+    .client-item {
+      padding: 9px 14px; cursor: pointer; font-size: 13px; color: #cbd5e1;
+      transition: background 0.1s;
+    }
+    .client-item:hover, .client-item.selected { background: rgba(99,102,241,0.14); color: #e2e8f0; }
+    .client-item .sub { font-size: 11px; color: #64748b; margin-top: 1px; }
+    .client-selected-chip {
+      display: flex; align-items: center; justify-content: space-between;
+      padding: 8px 12px; background: rgba(99,102,241,0.1);
+      border: 1px solid rgba(99,102,241,0.25); border-radius: 8px;
+      font-size: 13px; color: #a5b4fc;
+    }
+    .client-selected-chip span { font-size: 11px; color: #64748b; cursor: pointer; }
+
+    /* ─ Scrollbar ────────────────────────────────────────────────────── */
+    ::-webkit-scrollbar { width: 5px; }
+    ::-webkit-scrollbar-track { background: transparent; }
+    ::-webkit-scrollbar-thumb { background: rgba(255,255,255,0.12); border-radius: 3px; }
+  </style>
+</head>
+<body>
+<div id="app">
+
+  <!-- ── TITLE BAR ─────────────────────────────────────────────────────── -->
+  <div class="titlebar">
+    <span class="titlebar-logo">⏺ SP Recorder</span>
+    <span class="titlebar-user no-drag" id="userDisplay" style="display:none" onclick="confirmSignOut()">
+      Sign out
+    </span>
+  </div>
+
+  <!-- ════════════════════════════════════════════════════════════════════ -->
+  <!-- SCREEN: LOADING ──────────────────────────────────────────────────── -->
+  <div id="screenLoading" class="screen active" style="align-items:center;justify-content:center;gap:12px;">
+    <div class="spinner" style="width:28px;height:28px;border-width:3px;"></div>
+    <p class="lead">Starting up…</p>
+  </div>
+
+  <!-- ════════════════════════════════════════════════════════════════════ -->
+  <!-- SCREEN: LOGIN ────────────────────────────────────────────────────── -->
+  <div id="screenLogin" class="screen" style="justify-content:center;">
+    <div class="card">
+      <h1 style="margin-bottom:6px;">Sign in</h1>
+      <p class="lead" style="margin-bottom:24px;">Use your Southern Psychologists account.</p>
+
+      <div class="field">
+        <div class="label">Email</div>
+        <input class="no-drag" type="email" id="loginEmail" placeholder="you@example.com" autocomplete="username" />
+      </div>
+      <div class="field">
+        <div class="label">Password</div>
+        <input class="no-drag" type="password" id="loginPassword" placeholder="••••••••" autocomplete="current-password" id="loginPassword" />
+      </div>
+      <div id="loginError" class="error-msg" style="display:none;margin-top:-8px;margin-bottom:12px;"></div>
+      <button class="btn btn-primary btn-full no-drag" id="loginBtn" onclick="doLogin()">Sign in</button>
+    </div>
+  </div>
+
+  <!-- ════════════════════════════════════════════════════════════════════ -->
+  <!-- SCREEN: MAIN ─────────────────────────────────────────────────────── -->
+  <div id="screenMain" class="screen" style="gap:16px;">
+
+    <!-- Client selector ────────────────────────────────────────────────── -->
+    <div id="clientSelectorSection">
+      <div class="label">Client for this session</div>
+      <div id="clientNotSelected">
+        <div class="search-wrapper" id="clientSearchWrapper">
+          <span class="search-icon">🔍</span>
+          <input
+            class="no-drag"
+            type="text"
+            id="clientSearch"
+            placeholder="Search clients…"
+            oninput="filterClients()"
+            onfocus="showClientList()"
+          />
+        </div>
+        <div class="client-list" id="clientList" style="display:none;"></div>
+        <div id="clientLoadingMsg" class="info-msg" style="display:none;">Loading clients…</div>
+      </div>
+      <div id="clientSelected" style="display:none;">
+        <div class="client-selected-chip">
+          <span id="clientSelectedName">—</span>
+          <span onclick="clearClient()">Change</span>
+        </div>
+      </div>
+    </div>
+
+    <!-- Recorder card ──────────────────────────────────────────────────── -->
+    <div class="card" style="flex:1;display:flex;flex-direction:column;align-items:center;justify-content:center;gap:20px;">
+
+      <!-- Status badge -->
+      <div id="statusBadge" class="badge badge-idle">
+        <span class="dot"></span>
+        <span id="statusText">Ready</span>
+      </div>
+
+      <!-- Visualiser canvas -->
+      <canvas id="vizCanvas" width="340" height="48" style="display:none;"></canvas>
+
+      <!-- Timer -->
+      <div id="timerDisplay" class="timer">00:00</div>
+
+      <!-- Big record button -->
+      <button id="recordBtn" class="record-btn idle no-drag" onclick="toggleRecord()">⏺</button>
+      <p class="lead" id="recordHint" style="font-size:12px;">Select a client, then press to record</p>
+
+      <!-- Upload progress -->
+      <div id="uploadProgress" style="width:100%;display:none;">
+        <div class="progress-track"><div class="progress-fill" id="progressFill" style="width:0%"></div></div>
+        <p class="lead" id="uploadMsg" style="text-align:center;margin-top:8px;font-size:12px;">Uploading…</p>
+      </div>
+
+      <!-- Level meters (shown while recording) -->
+      <div id="levelMeters" style="width:100%;display:none;">
+        <div class="meter-row">
+          <span class="meter-label">Mic</span>
+          <div class="meter-track"><div class="meter-fill" id="micMeter"></div></div>
+        </div>
+        <div class="meter-row">
+          <span class="meter-label">System</span>
+          <div class="meter-track"><div class="meter-fill" id="sysMeter"></div></div>
+        </div>
+      </div>
+
+    </div>
+
+    <!-- Error area ─────────────────────────────────────────────────────── -->
+    <div id="mainError" class="error-msg" style="display:none;text-align:center;"></div>
+
+    <!-- Open in browser ────────────────────────────────────────────────── -->
+    <button
+      class="btn btn-ghost btn-full no-drag"
+      id="openPortalBtn"
+      style="display:none"
+      onclick="openPortal()"
+    >
+      Open in Transcription Portal →
+    </button>
+
+  </div><!-- /screenMain -->
+
+</div><!-- /app -->
+
+<script>
+// ═══════════════════════════════════════════════════════════════════════════
+// STATE
+// ═══════════════════════════════════════════════════════════════════════════
+let currentUser = null
+let allClients = []
+let selectedClient = null
+
+let recorderState = 'idle' // idle | recording | uploading | done | error
+let mediaRecorder = null
+let audioChunks = []
+let audioCtx = null
+let micAnalyser = null
+let sysAnalyser = null
+let micStream = null
+let sysStream = null
+let timerInterval = null
+let timerSeconds = 0
+let vizAnimFrame = null
+let currentSessionId = null
+let lastCompletedSessionId = null
+
+const TRANSCRIPT_BASE = 'https://transcript-ai-lime.vercel.app'
+
+// ═══════════════════════════════════════════════════════════════════════════
+// INIT
+// ═══════════════════════════════════════════════════════════════════════════
+async function init() {
+  const { session } = await window.api.auth.getSession()
+  if (session) {
+    currentUser = session.user
+    await enterMain()
+  } else {
+    showScreen('Login')
+  }
+}
+
+function showScreen(name) {
+  document.querySelectorAll('.screen').forEach(s => s.classList.remove('active'))
+  document.getElementById('screen' + name).classList.add('active')
+  const userEl = document.getElementById('userDisplay')
+  if (name === 'Main') {
+    userEl.style.display = 'block'
+    userEl.title = currentUser?.email ?? ''
+  } else {
+    userEl.style.display = 'none'
+  }
+}
+
+// ═══════════════════════════════════════════════════════════════════════════
+// AUTH
+// ═══════════════════════════════════════════════════════════════════════════
+async function doLogin() {
+  const email = document.getElementById('loginEmail').value.trim()
+  const password = document.getElementById('loginPassword').value
+  const errorEl = document.getElementById('loginError')
+  const btn = document.getElementById('loginBtn')
+
+  errorEl.style.display = 'none'
+  if (!email || !password) { showLogin​Error('Please enter your email and password.'); return }
+
+  btn.disabled = true
+  btn.textContent = 'Signing in…'
+
+  const result = await window.api.auth.signIn(email, password)
+  btn.disabled = false
+  btn.textContent = 'Sign in'
+
+  if (!result.ok) {
+    showLoginError(result.error || 'Sign in failed. Check your email and password.')
+    return
+  }
+
+  currentUser = result.user
+  await enterMain()
+}
+
+function showLoginError(msg) {
+  const el = document.getElementById('loginError')
+  el.textContent = msg
+  el.style.display = 'block'
+}
+
+document.getElementById('loginPassword').addEventListener('keydown', e => {
+  if (e.key === 'Enter') doLogin()
+})
+document.getElementById('loginEmail').addEventListener('keydown', e => {
+  if (e.key === 'Enter') document.getElementById('loginPassword').focus()
+})
+
+async function confirmSignOut() {
+  if (!confirm('Sign out?')) return
+  await window.api.auth.signOut()
+  currentUser = null
+  allClients = []
+  selectedClient = null
+  clearClient()
+  resetRecorderUI()
+  showScreen('Login')
+}
+
+// ═══════════════════════════════════════════════════════════════════════════
+// MAIN SCREEN ENTRY
+// ═══════════════════════════════════════════════════════════════════════════
+async function enterMain() {
+  showScreen('Main')
+  loadClients()
+}
+
+// ═══════════════════════════════════════════════════════════════════════════
+// CLIENT SELECTOR
+// ═══════════════════════════════════════════════════════════════════════════
+async function loadClients() {
+  const loadMsg = document.getElementById('clientLoadingMsg')
+  loadMsg.style.display = 'block'
+  const result = await window.api.transcript.listClients()
+  loadMsg.style.display = 'none'
+  if (result.ok && result.data.clients) {
+    allClients = result.data.clients
+  } else {
+    allClients = []
+    // No error shown — user can still pick once they're visible
+  }
+  renderClientList('')
+}
+
+function filterClients() {
+  const q = document.getElementById('clientSearch').value.toLowerCase()
+  renderClientList(q)
+  document.getElementById('clientList').style.display = 'block'
+}
+
+function renderClientList(query) {
+  const list = document.getElementById('clientList')
+  const matches = allClients
+    .filter(c => {
+      const name = `${c.first_name ?? ''} ${c.last_name ?? ''} ${c.preferred_name ?? ''}`.toLowerCase()
+      return !query || name.includes(query)
+    })
+    .slice(0, 20)
+
+  if (matches.length === 0) {
+    list.innerHTML = '<div class="client-item" style="color:#64748b;cursor:default;">No clients found</div>'
+  } else {
+    list.innerHTML = matches.map(c => {
+      const name = clientDisplayName(c)
+      const dob = c.dob ? `DOB: ${c.dob}` : ''
+      return `<div class="client-item" onclick="selectClient('${c.id}')">
+        <div>${name}</div>
+        ${dob ? `<div class="sub">${dob}</div>` : ''}
+      </div>`
+    }).join('')
+  }
+}
+
+function showClientList() {
+  document.getElementById('clientList').style.display = 'block'
+  renderClientList(document.getElementById('clientSearch').value.toLowerCase())
+}
+
+function selectClient(id) {
+  selectedClient = allClients.find(c => c.id === id)
+  if (!selectedClient) return
+
+  document.getElementById('clientNotSelected').style.display = 'none'
+  document.getElementById('clientSelected').style.display = 'block'
+  document.getElementById('clientSelectedName').textContent = clientDisplayName(selectedClient)
+  document.getElementById('clientList').style.display = 'none'
+
+  updateRecordHint()
+}
+
+function clearClient() {
+  selectedClient = null
+  document.getElementById('clientNotSelected').style.display = 'block'
+  document.getElementById('clientSelected').style.display = 'none'
+  document.getElementById('clientSearch').value = ''
+  document.getElementById('clientList').style.display = 'none'
+  updateRecordHint()
+}
+
+function clientDisplayName(c) {
+  if (!c) return '—'
+  const preferred = c.preferred_name ? ` (${c.preferred_name})` : ''
+  return `${c.first_name ?? ''} ${c.last_name ?? ''}${preferred}`.trim() || c.email || c.id
+}
+
+// Close client list when clicking outside
+document.addEventListener('click', e => {
+  const wrapper = document.getElementById('clientSearchWrapper')
+  const list = document.getElementById('clientList')
+  if (wrapper && list && !wrapper.contains(e.target) && !list.contains(e.target)) {
+    list.style.display = 'none'
+  }
+})
+
+// ═══════════════════════════════════════════════════════════════════════════
+// RECORD / STOP
+// ═══════════════════════════════════════════════════════════════════════════
+async function toggleRecord() {
+  if (recorderState === 'recording') {
+    await stopRecording()
+  } else if (recorderState === 'idle' || recorderState === 'done' || recorderState === 'error') {
+    await startRecording()
+  }
+}
+
+async function startRecording() {
+  if (!selectedClient) {
+    showMainError('Please select a client before recording.')
+    return
+  }
+
+  setRecorderState('idle')
+  hideMainError()
+  clearOpenPortalBtn()
+
+  try {
+    // 1 ── Request macOS permissions ──────────────────────────────────────
+    const micOk = await window.api.desktop.requestMediaAccess('microphone')
+    if (!micOk) throw new Error('Microphone access was denied. Please allow it in System Settings → Privacy & Security → Microphone.')
+
+    const screenStatus = await window.api.desktop.getMediaAccessStatus('screen')
+    if (screenStatus === 'denied') {
+      throw new Error('Screen Recording access was denied. Please allow "SP Recorder" in System Settings → Privacy & Security → Screen Recording, then reopen the app.')
+    }
+
+    // 2 ── Get desktop sources ────────────────────────────────────────────
+    const { sources = [], error: srcError } = await window.api.desktop.getDesktopSources()
+    if (srcError) throw new Error('Could not list screen sources: ' + srcError)
+    if (sources.length === 0) throw new Error('No screen sources found. Make sure Screen Recording permission is granted.')
+
+    const screenSource = sources.find(s => /screen/i.test(s.name)) ?? sources[0]
+
+    // 3 ── Capture system audio via desktop source ─────────────────────
+    sysStream = await navigator.mediaDevices.getUserMedia({
+      audio: { mandatory: { chromeMediaSource: 'desktop' } },
+      video: {
+        mandatory: {
+          chromeMediaSource: 'desktop',
+          chromeMediaSourceId: screenSource.id,
+          maxWidth: 1,
+          maxHeight: 1,
+          maxFrameRate: 1,
+        },
+      },
+    })
+    // Discard video — we only want the audio track
+    sysStream.getVideoTracks().forEach(t => t.stop())
+
+    // 4 ── Capture microphone ─────────────────────────────────────────
+    micStream = await navigator.mediaDevices.getUserMedia({ audio: true, video: false })
+
+    // 5 ── Mix using Web Audio API ─────────────────────────────────────
+    audioCtx = new AudioContext()
+    const micSrc = audioCtx.createMediaStreamSource(micStream)
+    const sysSrc = audioCtx.createMediaStreamSource(sysStream)
+    const dest = audioCtx.createMediaStreamDestination()
+
+    micAnalyser = audioCtx.createAnalyser(); micAnalyser.fftSize = 256
+    sysAnalyser = audioCtx.createAnalyser(); sysAnalyser.fftSize = 256
+
+    micSrc.connect(micAnalyser); micAnalyser.connect(dest)
+    sysSrc.connect(sysAnalyser); sysAnalyser.connect(dest)
+
+    // 6 ── Create session in transcript-ai ────────────────────────────
+    const now = new Date().toISOString()
+    const sessionTitle = `Zoom — ${new Date().toLocaleDateString('en-AU', { day: '2-digit', month: 'short', year: 'numeric' })}`
+    const sessionRes = await window.api.transcript.createSession({
+      client_id: selectedClient.id,
+      title: sessionTitle,
+      started_at: now,
+    })
+    if (!sessionRes.ok) throw new Error('Could not create session: ' + (sessionRes.data?.message ?? 'Unknown error'))
+    currentSessionId = sessionRes.data.session?.id
+    if (!currentSessionId) throw new Error('Session ID missing from response')
+
+    // 7 ── Start MediaRecorder ─────────────────────────────────────────
+    audioChunks = []
+    const mimeType = MediaRecorder.isTypeSupported('audio/webm;codecs=opus')
+      ? 'audio/webm;codecs=opus'
+      : 'audio/webm'
+
+    mediaRecorder = new MediaRecorder(dest.stream, { mimeType })
+    mediaRecorder.ondataavailable = e => { if (e.data && e.data.size > 0) audioChunks.push(e.data) }
+    mediaRecorder.onstop = handleRecordingStop
+    mediaRecorder.start(500) // collect data every 500ms
+
+    // 8 ── Update UI ────────────────────────────────────────────────────
+    setRecorderState('recording')
+    startTimer()
+    startVisualiser()
+
+  } catch (err) {
+    cleanupAudio()
+    showMainError(err.message)
+    setRecorderState('idle')
+  }
+}
+
+async function stopRecording() {
+  if (!mediaRecorder || mediaRecorder.state === 'inactive') return
+  setRecorderState('uploading')
+  stopTimer()
+  stopVisualiser()
+  mediaRecorder.stop()
+}
+
+async function handleRecordingStop() {
+  const blob = new Blob(audioChunks, { type: mediaRecorder.mimeType })
+  audioChunks = []
+  cleanupAudio()
+
+  try {
+    updateUploadProgress(10, 'Preparing upload…')
+
+    // 1 ── Stop session + get signed upload URL ────────────────────────
+    const stopRes = await window.api.transcript.stopRecording({
+      session_id: currentSessionId,
+      client_id: selectedClient.id,
+      mime_type: blob.type,
+      size_bytes: blob.size,
+      stopped_at: new Date().toISOString(),
+    })
+    if (!stopRes.ok) throw new Error('Failed to prepare upload: ' + (stopRes.data?.message ?? 'Unknown error'))
+
+    const { audio_file_id, upload } = stopRes.data
+    if (!upload?.signedUrl) throw new Error('Signed upload URL missing from response')
+
+    updateUploadProgress(35, 'Uploading audio…')
+
+    // 2 ── Upload to Supabase storage ──────────────────────────────────
+    const arrayBuffer = await blob.arrayBuffer()
+    const uploadRes = await window.api.uploadAudio({
+      signedUrl: upload.signedUrl,
+      arrayBuffer,
+      contentType: blob.type,
+    })
+    if (!uploadRes.ok) throw new Error(`Audio upload failed (HTTP ${uploadRes.status})`)
+
+    updateUploadProgress(80, 'Finalising…')
+
+    // 3 ── Confirm upload and enqueue transcription ────────────────────
+    const completeRes = await window.api.transcript.completeUpload({
+      audio_file_id,
+      session_id: currentSessionId,
+    })
+    if (!completeRes.ok) throw new Error('Could not finalise: ' + (completeRes.data?.message ?? 'Unknown error'))
+
+    updateUploadProgress(100, 'Done!')
+    lastCompletedSessionId = currentSessionId
+    currentSessionId = null
+    setRecorderState('done')
+    showOpenPortalBtn()
+
+  } catch (err) {
+    showMainError(err.message)
+    setRecorderState('error')
+    hideUploadProgress()
+  }
+}
+
+// ═══════════════════════════════════════════════════════════════════════════
+// AUDIO CLEANUP
+// ═══════════════════════════════════════════════════════════════════════════
+function cleanupAudio() {
+  micStream?.getTracks().forEach(t => t.stop()); micStream = null
+  sysStream?.getTracks().forEach(t => t.stop()); sysStream = null
+  audioCtx?.close(); audioCtx = null
+  micAnalyser = null; sysAnalyser = null
+}
+
+// ═══════════════════════════════════════════════════════════════════════════
+// TIMER
+// ═══════════════════════════════════════════════════════════════════════════
+function startTimer() {
+  timerSeconds = 0
+  updateTimerDisplay()
+  timerInterval = setInterval(() => { timerSeconds++; updateTimerDisplay() }, 1000)
+}
+function stopTimer() { clearInterval(timerInterval); timerInterval = null }
+function updateTimerDisplay() {
+  const m = String(Math.floor(timerSeconds / 60)).padStart(2, '0')
+  const s = String(timerSeconds % 60).padStart(2, '0')
+  document.getElementById('timerDisplay').textContent = `${m}:${s}`
+}
+
+// ═══════════════════════════════════════════════════════════════════════════
+// LEVEL METER VISUALISER
+// ═══════════════════════════════════════════════════════════════════════════
+function startVisualiser() {
+  document.getElementById('levelMeters').style.display = 'block'
+  const canvas = document.getElementById('vizCanvas')
+  canvas.style.display = 'block'
+  const ctx = canvas.getContext('2d')
+  const W = canvas.width, H = canvas.height
+
+  function draw() {
+    vizAnimFrame = requestAnimationFrame(draw)
+    ctx.clearRect(0, 0, W, H)
+
+    const draw1 = (analyser, color, yOff, height) => {
+      const buf = new Uint8Array(analyser.frequencyBinCount)
+      analyser.getByteFrequencyData(buf)
+      const avg = buf.reduce((a, b) => a + b, 0) / buf.length
+      const pct = avg / 255
+
+      // Meter fill elements
+      const meterId = analyser === micAnalyser ? 'micMeter' : 'sysMeter'
+      document.getElementById(meterId).style.width = Math.round(pct * 100) + '%'
+
+      // Canvas waveform bars
+      const barW = 3, gap = 2, n = Math.floor(W / (barW + gap))
+      const freqBuf = new Uint8Array(analyser.frequencyBinCount)
+      analyser.getByteFrequencyData(freqBuf)
+      for (let i = 0; i < n; i++) {
+        const idx = Math.floor(i * freqBuf.length / n)
+        const barH = (freqBuf[idx] / 255) * height
+        const grad = ctx.createLinearGradient(0, yOff + height, 0, yOff + height - barH)
+        grad.addColorStop(0, color)
+        grad.addColorStop(1, color.replace('0.9', '0.3'))
+        ctx.fillStyle = grad
+        ctx.beginPath()
+        ctx.roundRect(i * (barW + gap), yOff + height - barH, barW, barH, 1.5)
+        ctx.fill()
+      }
+    }
+
+    if (micAnalyser) draw1(micAnalyser, 'rgba(99,102,241,0.9)', 2, H/2 - 4)
+    if (sysAnalyser) draw1(sysAnalyser, 'rgba(239,68,68,0.9)', H/2 + 2, H/2 - 4)
+  }
+  draw()
+}
+
+function stopVisualiser() {
+  if (vizAnimFrame) { cancelAnimationFrame(vizAnimFrame); vizAnimFrame = null }
+  const canvas = document.getElementById('vizCanvas')
+  canvas.style.display = 'none'
+  document.getElementById('levelMeters').style.display = 'none'
+  document.getElementById('micMeter').style.width = '0%'
+  document.getElementById('sysMeter').style.width = '0%'
+}
+
+// ═══════════════════════════════════════════════════════════════════════════
+// UI HELPERS
+// ═══════════════════════════════════════════════════════════════════════════
+function setRecorderState(state) {
+  recorderState = state
+  const btn = document.getElementById('recordBtn')
+  const badge = document.getElementById('statusBadge')
+  const statusText = document.getElementById('statusText')
+  const hint = document.getElementById('recordHint')
+  const timer = document.getElementById('timerDisplay')
+  const uploadProgress = document.getElementById('uploadProgress')
+
+  btn.className = 'record-btn no-drag'
+  badge.className = 'badge'
+  uploadProgress.style.display = 'none'
+
+  if (state === 'idle') {
+    btn.classList.add('idle'); btn.textContent = '⏺'
+    badge.classList.add('badge-idle')
+    statusText.textContent = 'Ready'
+    hint.textContent = selectedClient ? 'Press ⏺ to start recording' : 'Select a client, then press ⏺'
+    timer.className = 'timer'
+    timer.textContent = '00:00'
+  } else if (state === 'recording') {
+    btn.classList.add('recording'); btn.textContent = '⏹'
+    badge.classList.add('badge-recording')
+    badge.querySelector('.dot').classList.add('blink')
+    statusText.textContent = 'Recording'
+    hint.textContent = 'Press ⏹ to stop recording'
+    timer.className = 'timer recording'
+  } else if (state === 'uploading') {
+    btn.classList.add('uploading'); btn.textContent = '⏳'
+    badge.classList.add('badge-uploading')
+    statusText.textContent = 'Uploading'
+    hint.textContent = 'Uploading to transcription service…'
+    timer.className = 'timer'
+    uploadProgress.style.display = 'block'
+  } else if (state === 'done') {
+    btn.classList.add('idle'); btn.textContent = '⏺'
+    badge.classList.add('badge-done')
+    statusText.textContent = 'Done'
+    hint.textContent = 'Upload complete! Recording is being transcribed.'
+    timer.className = 'timer'
+  } else if (state === 'error') {
+    btn.classList.add('idle'); btn.textContent = '⏺'
+    badge.classList.add('badge-error')
+    statusText.textContent = 'Error'
+    hint.textContent = 'Something went wrong. Try again.'
+    timer.className = 'timer'
+  }
+}
+
+function updateRecordHint() {
+  if (recorderState === 'idle') {
+    document.getElementById('recordHint').textContent =
+      selectedClient ? 'Press ⏺ to start recording' : 'Select a client, then press ⏺'
+  }
+}
+
+function updateUploadProgress(pct, msg) {
+  document.getElementById('progressFill').style.width = pct + '%'
+  if (msg) document.getElementById('uploadMsg').textContent = msg
+}
+
+function hideUploadProgress() {
+  document.getElementById('uploadProgress').style.display = 'none'
+}
+
+function showMainError(msg) {
+  const el = document.getElementById('mainError')
+  el.textContent = '⚠ ' + msg
+  el.style.display = 'block'
+}
+function hideMainError() {
+  document.getElementById('mainError').style.display = 'none'
+}
+
+function showOpenPortalBtn() {
+  document.getElementById('openPortalBtn').style.display = 'block'
+}
+function clearOpenPortalBtn() {
+  document.getElementById('openPortalBtn').style.display = 'none'
+}
+
+function openPortal() {
+  const url = lastCompletedSessionId
+    ? `${TRANSCRIPT_BASE}/transcription`
+    : `${TRANSCRIPT_BASE}/transcription`
+  window.api.desktop.openExternal(url)
+}
+
+function resetRecorderUI() {
+  stopTimer()
+  stopVisualiser()
+  cleanupAudio()
+  timerSeconds = 0
+  currentSessionId = null
+  setRecorderState('idle')
+  hideMainError()
+  clearOpenPortalBtn()
+}
+
+// ═══════════════════════════════════════════════════════════════════════════
+// BOOT
+// ═══════════════════════════════════════════════════════════════════════════
+window.addEventListener('DOMContentLoaded', init)
+</script>
+</body>
+</html>
