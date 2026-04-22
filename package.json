@@ -51,6 +51,7 @@
     },
     "dmg": {
       "title": "SP Recorder",
+      "artifactName": "SP-Recorder-${arch}.dmg",
       "icon": "build/icon.icns",
       "contents": [
         { "x": 130, "y": 220 },
